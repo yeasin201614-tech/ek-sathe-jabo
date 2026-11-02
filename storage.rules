@@ -1,0 +1,44 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return isAuthenticated() && (request.auth.token.role == 'admin' || request.auth.token.admin == true);
+    }
+    function isOperator() {
+      return isAuthenticated() && (request.auth.token.role == 'operator' || request.auth.token.operatorId != null);
+    }
+
+    // Public brand assets and operator logos
+    match /operators/{operatorId}/{fileName} {
+      allow read: if true;
+      allow write: if isAdmin() || (isOperator() && request.auth.token.operatorId == operatorId);
+    }
+
+    // Bus images
+    match /buses/{busId}/{fileName} {
+      allow read: if true;
+      allow write: if isAdmin() || isOperator();
+    }
+
+    // User profile photos
+    match /users/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+    }
+
+    // E-tickets and receipts
+    match /tickets/{bookingId}/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

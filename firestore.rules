@@ -1,0 +1,752 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// 1. Collection: users/{userId}
+//    Document ID: Firebase Auth UID ({userId})
+//    Fields:
+//      - uid: string (1-100 chars, required, immutable, matches document ID & auth.uid)
+//      - fullName: string (1-100 chars, required)
+//      - email: string (valid email format, 3-100 chars, required)
+//      - phone: string (5-25 chars, required)
+//      - role: string ('passenger' | 'operator' | 'admin', required; immutable by non-admin)
+//      - photoURL: string (optional, valid URL <= 500 chars)
+//      - preferredLanguage: string (optional, 'en' | 'bn')
+//      - operatorId: string (optional, for operator accounts <= 100 chars, admin-only assigned)
+//      - createdAt: string | timestamp (required, immutable)
+//      - updatedAt: string | timestamp (required)
+//
+// 2. Collection: operators/{operatorId}
+//    Document ID: Operator unique identifier ({operatorId})
+//    Fields:
+//      - operatorName: string (1-100 chars, required)
+//      - logoURL: string (valid URL <= 500 chars, required)
+//      - contactPhone: string (5-25 chars, required)
+//      - contactEmail: string (valid email format <= 100 chars, required)
+//      - address: string (1-300 chars, required)
+//      - status: string ('active' | 'suspended' | 'pending', required)
+//      - createdAt: string | timestamp (required, immutable)
+//      - slug: string (optional, <= 100 chars)
+//      - rating: number (optional, 0 to 5)
+//      - busCategories: list (optional, <= 20 items)
+//      - popularRoutes: list (optional, <= 50 items)
+//
+// 3. Collection: buses/{busId}
+//    Document ID: Bus unique identifier ({busId})
+//    Fields:
+//      - operatorId: string (1-100 chars, required, immutable by operator)
+//      - busName: string (1-100 chars, required)
+//      - registrationNumber: string (1-50 chars, required)
+//      - busType: string ('AC' | 'Non-AC', required)
+//      - category: string (1-50 chars, required)
+//      - seatLayout: string (1-20 chars, required)
+//      - amenities: list (0-30 items, required)
+//      - status: string ('active' | 'maintenance', required)
+//      - createdAt: string | timestamp (required, immutable)
+//      - operatorName: string (optional, <= 100 chars)
+//      - totalSeats: number (optional, 1 to 100)
+//
+// 4. Collection: routes/{routeId}
+//    Document ID: Route unique identifier ({routeId})
+//    Fields:
+//      - origin: string (1-100 chars, required)
+//      - destination: string (1-100 chars, required)
+//      - distanceKm: number (> 0, required)
+//      - durationMinutes: number (> 0, required)
+//      - boardingPoints: list (1-50 items, required)
+//      - droppingPoints: list (1-50 items, required)
+//      - baseFare: number (>= 0, required)
+//      - status: string ('active' | 'inactive', required)
+//      - durationFormatted: string (optional, <= 50 chars)
+//
+// 5. Collection: trips/{tripId}
+//    Document ID: Trip unique identifier ({tripId})
+//    Fields:
+//      - busId: string (1-100 chars, required)
+//      - operatorId: string (1-100 chars, required, immutable by operator)
+//      - routeId: string (1-100 chars, required)
+//      - journeyDate: string (1-20 chars, required)
+//      - departureTime: string (1-30 chars, required)
+//      - arrivalTime: string (1-30 chars, required)
+//      - fare: number (> 0, required)
+//      - seatInventory: map (required)
+//      - status: string ('scheduled' | 'running' | 'completed' | 'cancelled', required)
+//      - createdAt: string | timestamp (required, immutable)
+//      - operatorName: string (optional, <= 100 chars)
+//      - operatorLogo: string (optional, valid URL <= 500 chars)
+//      - origin: string (optional, <= 100 chars)
+//      - destination: string (optional, <= 100 chars)
+//      - durationFormatted: string (optional, <= 50 chars)
+//      - busName: string (optional, <= 100 chars)
+//      - busType: string (optional, 'AC' | 'Non-AC')
+//      - category: string (optional, <= 50 chars)
+//      - availableSeatCount: number (optional, >= 0)
+//      - totalSeats: number (optional, >= 1)
+//      - amenities: list (optional, <= 30 items)
+//      - boardingPoints: list (optional, <= 50 items)
+//      - droppingPoints: list (optional, <= 50 items)
+//      - rating: number (optional, 0 to 5)
+//
+// 6. Collection: seatHolds/{holdId}
+//    Document ID: Hold unique identifier ({holdId})
+//    Fields:
+//      - tripId: string (1-100 chars, required)
+//      - seatNumbers: list (1-10 items, required)
+//      - userId: string (1-100 chars, matches auth.uid on user create, required)
+//      - expiresAt: number (ms timestamp > request.time.toMillis(), required)
+//      - status: string ('active' | 'expired' | 'converted' | 'released', required)
+//      - userSession: string (optional, <= 100 chars)
+//
+// 7. Collection: bookings/{bookingId}
+//    Document ID: Booking unique identifier ({bookingId})
+//    Fields:
+//      - bookingReference: string (1-50 chars, required, immutable)
+//      - userId: string (1-100 chars, required, matches auth.uid for passenger)
+//      - tripId: string (1-100 chars, required)
+//      - passengerDetails: list (1-10 items, required)
+//      - selectedSeats: list (1-10 items, required)
+//      - subtotal: number (>= 0, required)
+//      - discount: number (>= 0, required)
+//      - totalAmount: number (>= 0, required)
+//      - paymentStatus: string ('UNPAID' | 'VERIFIED' | 'FAILED' | 'REFUNDED', required; immutable by passenger)
+//      - bookingStatus: string ('CONFIRMED' | 'CANCELLED' | 'PENDING', required; immutable by passenger)
+//      - createdAt: string | timestamp (required, immutable)
+//      - updatedAt: string | timestamp (required)
+//      - operatorId: string (optional, <= 100 chars)
+//      - operatorName: string (optional, <= 100 chars)
+//      - busName: string (optional, <= 100 chars)
+//      - busType: string (optional, 'AC' | 'Non-AC')
+//      - category: string (optional, <= 50 chars)
+//      - origin: string (optional, <= 100 chars)
+//      - destination: string (optional, <= 100 chars)
+//      - journeyDate: string (optional, <= 20 chars)
+//      - departureTime: string (optional, <= 30 chars)
+//      - arrivalTime: string (optional, <= 30 chars)
+//      - boardingPoint: string (optional, <= 100 chars)
+//      - droppingPoint: string (optional, <= 100 chars)
+//      - primaryContact: map (optional)
+//      - seatCount: number (optional, 1 to 10)
+//      - seatCharge: number (optional, >= 0)
+//      - couponCode: string (optional, <= 50 chars)
+//      - qrCodeToken: string (optional, <= 200 chars)
+//      - paymentId: string (optional, <= 100 chars)
+//      - transactionReference: string (optional, <= 100 chars)
+//      - paymentMethod: string (optional, 'bkash' | 'nagad' | 'rocket' | 'card' | 'demo')
+//
+// 8. Collection: payments/{paymentId}
+//    Document ID: Payment unique identifier ({paymentId})
+//    Fields:
+//      - bookingId: string (1-100 chars, required)
+//      - userId: string (1-100 chars, required)
+//      - provider: string (1-50 chars, required)
+//      - amount: number (> 0, required)
+//      - currency: string (1-10 chars, required)
+//      - transactionReference: string (1-100 chars, required)
+//      - paymentStatus: string ('VERIFIED' | 'FAILED' | 'PENDING' | 'REFUNDED', required)
+//      - verifiedAt: string | timestamp (required)
+//      - createdAt: string | timestamp (required, immutable)
+//      - bookingReference: string (optional, <= 50 chars)
+//      - accountNumber: string (optional, <= 50 chars)
+//
+// 9. Collection: coupons/{couponId}
+//    Document ID: Coupon unique identifier ({couponId})
+//    Fields:
+//      - code: string (1-50 chars, required)
+//      - discountType: string ('percentage' | 'fixed', required)
+//      - discountValue: number (> 0, required)
+//      - minimumPurchase: number (>= 0, required)
+//      - maximumDiscount: number (optional, >= 0)
+//      - usageLimit: number (> 0, required)
+//      - expiryDate: string | timestamp (required)
+//      - active: bool (required)
+//      - usedCount: number (optional, >= 0)
+//      - description: string (optional, <= 300 chars)
+//
+// 10. Collection: supportTickets/{ticketId}
+//     Document ID: Ticket unique identifier ({ticketId})
+//     Fields:
+//       - userId: string (1-100 chars, required, matches auth.uid for passenger)
+//       - subject: string (1-200 chars, required)
+//       - message: string (1-2000 chars, required)
+//       - status: string ('open' | 'in_progress' | 'resolved', required)
+//       - createdAt: string | timestamp (required, immutable)
+//       - updatedAt: string | timestamp (required)
+//       - userName: string (optional, <= 100 chars)
+//       - userEmail: string (optional, valid email <= 100 chars)
+//       - bookingReference: string (optional, <= 50 chars)
+//       - priority: string (optional, 'low' | 'medium' | 'high')
+//       - adminReply: string (optional, <= 2000 chars)
+//
+// 11. Collection: notifications/{notificationId}
+//     Document ID: Notification unique identifier ({notificationId})
+//     Fields:
+//       - userId: string (1-100 chars, required)
+//       - title: string (1-200 chars, required)
+//       - message: string (1-1000 chars, required)
+//       - type: string (1-50 chars, required)
+//       - read: bool (required)
+//       - createdAt: string | timestamp (required, immutable)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Global Helper Functions
+    // ===============================================================
+
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user is an administrator via custom claims or token flag
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' ||
+        request.auth.token.admin == true
+      );
+    }
+
+    // Check if user has an assigned operator custom claim matching operatorId
+    function isAssignedOperator(operatorId) {
+      return isAuthenticated() &&
+        request.auth.token.operatorId != null &&
+        request.auth.token.operatorId == operatorId;
+    }
+
+    // Check if user owns the document / user identity
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Validate email format
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() >= 3 &&
+        email.size() <= 100 &&
+        email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    // Validate URL format (must begin with http:// or https://)
+    function isValidUrl(url) {
+      return url is string &&
+        url.size() <= 500 &&
+        (url.matches('^https://.*') || url.matches('^http://.*'));
+    }
+
+    // Validate optional URL (can be absent, empty string, or valid URL)
+    function isValidOptionalUrl(data, field) {
+      return !(field in data) || data[field] == '' || isValidUrl(data[field]);
+    }
+
+    // Validate flexible timestamp or ISO formatted string
+    function isValidTimestampOrString(val) {
+      return (val is string && val.size() <= 50) || val is timestamp;
+    }
+
+    // ===============================================================
+    // Domain Validator Functions (Validator Function Pattern)
+    // ===============================================================
+
+    // 1. User Profile Validator
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'fullName', 'email', 'phone', 'role', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'fullName', 'email', 'phone', 'role', 'photoURL', 'preferredLanguage', 'operatorId', 'createdAt', 'updatedAt', 'id']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 100 &&
+        data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 100 &&
+        isValidEmail(data.email) &&
+        data.phone is string && data.phone.size() >= 5 && data.phone.size() <= 25 &&
+        data.role in ['passenger', 'operator', 'admin'] &&
+        isValidTimestampOrString(data.createdAt) &&
+        isValidTimestampOrString(data.updatedAt) &&
+        isValidOptionalUrl(data, 'photoURL') &&
+        (!('preferredLanguage' in data) || (data.preferredLanguage in ['en', 'bn'])) &&
+        (!('operatorId' in data) || (data.operatorId is string && data.operatorId.size() <= 100)) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100));
+    }
+
+    // 2. Operator Validator
+    function isValidOperator(data) {
+      return data.keys().hasAll(['operatorName', 'logoURL', 'contactPhone', 'contactEmail', 'address', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['operatorName', 'logoURL', 'contactPhone', 'contactEmail', 'address', 'status', 'createdAt', 'slug', 'rating', 'busCategories', 'popularRoutes', 'id']) &&
+        data.operatorName is string && data.operatorName.size() >= 1 && data.operatorName.size() <= 100 &&
+        isValidUrl(data.logoURL) &&
+        data.contactPhone is string && data.contactPhone.size() >= 5 && data.contactPhone.size() <= 25 &&
+        isValidEmail(data.contactEmail) &&
+        data.address is string && data.address.size() >= 1 && data.address.size() <= 300 &&
+        data.status in ['active', 'suspended', 'pending'] &&
+        isValidTimestampOrString(data.createdAt) &&
+        (!('slug' in data) || (data.slug is string && data.slug.size() <= 100)) &&
+        (!('rating' in data) || (data.rating is number && data.rating >= 0 && data.rating <= 5)) &&
+        (!('busCategories' in data) || (data.busCategories is list && data.busCategories.size() <= 20)) &&
+        (!('popularRoutes' in data) || (data.popularRoutes is list && data.popularRoutes.size() <= 50)) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100));
+    }
+
+    // 3. Bus Validator
+    function isValidBus(data) {
+      return data.keys().hasAll(['operatorId', 'busName', 'registrationNumber', 'busType', 'category', 'seatLayout', 'amenities', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['operatorId', 'busName', 'registrationNumber', 'busType', 'category', 'seatLayout', 'amenities', 'status', 'createdAt', 'operatorName', 'totalSeats', 'id']) &&
+        data.operatorId is string && data.operatorId.size() >= 1 && data.operatorId.size() <= 100 &&
+        data.busName is string && data.busName.size() >= 1 && data.busName.size() <= 100 &&
+        data.registrationNumber is string && data.registrationNumber.size() >= 1 && data.registrationNumber.size() <= 50 &&
+        data.busType in ['AC', 'Non-AC'] &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 50 &&
+        data.seatLayout is string && data.seatLayout.size() >= 1 && data.seatLayout.size() <= 20 &&
+        data.amenities is list && data.amenities.size() <= 30 &&
+        data.status in ['active', 'maintenance'] &&
+        isValidTimestampOrString(data.createdAt) &&
+        (!('operatorName' in data) || (data.operatorName is string && data.operatorName.size() <= 100)) &&
+        (!('totalSeats' in data) || (data.totalSeats is number && data.totalSeats >= 1 && data.totalSeats <= 100)) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100));
+    }
+
+    // 4. Route Validator
+    function isValidRoute(data) {
+      return data.keys().hasAll(['origin', 'destination', 'distanceKm', 'durationMinutes', 'boardingPoints', 'droppingPoints', 'baseFare', 'status']) &&
+        data.keys().hasOnly(['origin', 'destination', 'distanceKm', 'durationMinutes', 'boardingPoints', 'droppingPoints', 'baseFare', 'status', 'durationFormatted', 'id']) &&
+        data.origin is string && data.origin.size() >= 1 && data.origin.size() <= 100 &&
+        data.destination is string && data.destination.size() >= 1 && data.destination.size() <= 100 &&
+        data.distanceKm is number && data.distanceKm > 0 &&
+        data.durationMinutes is number && data.durationMinutes > 0 &&
+        data.boardingPoints is list && data.boardingPoints.size() >= 1 && data.boardingPoints.size() <= 50 &&
+        data.droppingPoints is list && data.droppingPoints.size() >= 1 && data.droppingPoints.size() <= 50 &&
+        data.baseFare is number && data.baseFare >= 0 &&
+        data.status in ['active', 'inactive'] &&
+        (!('durationFormatted' in data) || (data.durationFormatted is string && data.durationFormatted.size() <= 50)) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100));
+    }
+
+    // 5. Trip Validator
+    function isValidTrip(data) {
+      return data.keys().hasAll(['busId', 'operatorId', 'routeId', 'journeyDate', 'departureTime', 'arrivalTime', 'fare', 'seatInventory', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['busId', 'operatorId', 'routeId', 'journeyDate', 'departureTime', 'arrivalTime', 'fare', 'seatInventory', 'status', 'createdAt', 'id', 'operatorName', 'operatorLogo', 'origin', 'destination', 'durationFormatted', 'busName', 'busType', 'category', 'availableSeatCount', 'totalSeats', 'amenities', 'boardingPoints', 'droppingPoints', 'rating']) &&
+        data.busId is string && data.busId.size() >= 1 && data.busId.size() <= 100 &&
+        data.operatorId is string && data.operatorId.size() >= 1 && data.operatorId.size() <= 100 &&
+        data.routeId is string && data.routeId.size() >= 1 && data.routeId.size() <= 100 &&
+        data.journeyDate is string && data.journeyDate.size() >= 1 && data.journeyDate.size() <= 20 &&
+        data.departureTime is string && data.departureTime.size() >= 1 && data.departureTime.size() <= 30 &&
+        data.arrivalTime is string && data.arrivalTime.size() >= 1 && data.arrivalTime.size() <= 30 &&
+        data.fare is number && data.fare > 0 &&
+        data.seatInventory is map &&
+        data.status in ['scheduled', 'running', 'completed', 'cancelled'] &&
+        isValidTimestampOrString(data.createdAt) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100)) &&
+        (!('operatorName' in data) || (data.operatorName is string && data.operatorName.size() <= 100)) &&
+        isValidOptionalUrl(data, 'operatorLogo') &&
+        (!('origin' in data) || (data.origin is string && data.origin.size() <= 100)) &&
+        (!('destination' in data) || (data.destination is string && data.destination.size() <= 100)) &&
+        (!('durationFormatted' in data) || (data.durationFormatted is string && data.durationFormatted.size() <= 50)) &&
+        (!('busName' in data) || (data.busName is string && data.busName.size() <= 100)) &&
+        (!('busType' in data) || (data.busType in ['AC', 'Non-AC'])) &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 50)) &&
+        (!('availableSeatCount' in data) || (data.availableSeatCount is number && data.availableSeatCount >= 0)) &&
+        (!('totalSeats' in data) || (data.totalSeats is number && data.totalSeats >= 1)) &&
+        (!('amenities' in data) || (data.amenities is list && data.amenities.size() <= 30)) &&
+        (!('boardingPoints' in data) || (data.boardingPoints is list && data.boardingPoints.size() <= 50)) &&
+        (!('droppingPoints' in data) || (data.droppingPoints is list && data.droppingPoints.size() <= 50)) &&
+        (!('rating' in data) || (data.rating is number && data.rating >= 0 && data.rating <= 5));
+    }
+
+    // 6. Seat Hold Validator
+    function isValidSeatHold(data) {
+      return data.keys().hasAll(['tripId', 'seatNumbers', 'userId', 'expiresAt', 'status']) &&
+        data.keys().hasOnly(['tripId', 'seatNumbers', 'userId', 'expiresAt', 'status', 'userSession', 'id']) &&
+        data.tripId is string && data.tripId.size() >= 1 && data.tripId.size() <= 100 &&
+        data.seatNumbers is list && data.seatNumbers.size() >= 1 && data.seatNumbers.size() <= 10 &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 100 &&
+        data.expiresAt is number &&
+        data.status in ['active', 'expired', 'converted', 'released'] &&
+        (!('userSession' in data) || (data.userSession is string && data.userSession.size() <= 100)) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100));
+    }
+
+    // 7. Booking Validator
+    function isValidBooking(data) {
+      return data.keys().hasAll(['bookingReference', 'userId', 'tripId', 'passengerDetails', 'selectedSeats', 'subtotal', 'discount', 'totalAmount', 'paymentStatus', 'bookingStatus', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['bookingReference', 'userId', 'tripId', 'passengerDetails', 'selectedSeats', 'subtotal', 'discount', 'totalAmount', 'paymentStatus', 'bookingStatus', 'createdAt', 'updatedAt', 'operatorId', 'operatorName', 'busName', 'busType', 'category', 'origin', 'destination', 'journeyDate', 'departureTime', 'arrivalTime', 'boardingPoint', 'droppingPoint', 'primaryContact', 'seatCount', 'seatCharge', 'couponCode', 'qrCodeToken', 'paymentId', 'transactionReference', 'paymentMethod', 'id']) &&
+        data.bookingReference is string && data.bookingReference.size() >= 1 && data.bookingReference.size() <= 50 &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 100 &&
+        data.tripId is string && data.tripId.size() >= 1 && data.tripId.size() <= 100 &&
+        data.passengerDetails is list && data.passengerDetails.size() >= 1 && data.passengerDetails.size() <= 10 &&
+        data.selectedSeats is list && data.selectedSeats.size() >= 1 && data.selectedSeats.size() <= 10 &&
+        data.subtotal is number && data.subtotal >= 0 &&
+        data.discount is number && data.discount >= 0 &&
+        data.totalAmount is number && data.totalAmount >= 0 &&
+        data.paymentStatus in ['UNPAID', 'VERIFIED', 'FAILED', 'REFUNDED'] &&
+        data.bookingStatus in ['CONFIRMED', 'CANCELLED', 'PENDING'] &&
+        isValidTimestampOrString(data.createdAt) &&
+        isValidTimestampOrString(data.updatedAt) &&
+        (!('operatorId' in data) || (data.operatorId is string && data.operatorId.size() <= 100)) &&
+        (!('operatorName' in data) || (data.operatorName is string && data.operatorName.size() <= 100)) &&
+        (!('busName' in data) || (data.busName is string && data.busName.size() <= 100)) &&
+        (!('busType' in data) || (data.busType in ['AC', 'Non-AC'])) &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 50)) &&
+        (!('origin' in data) || (data.origin is string && data.origin.size() <= 100)) &&
+        (!('destination' in data) || (data.destination is string && data.destination.size() <= 100)) &&
+        (!('journeyDate' in data) || (data.journeyDate is string && data.journeyDate.size() <= 20)) &&
+        (!('departureTime' in data) || (data.departureTime is string && data.departureTime.size() <= 30)) &&
+        (!('arrivalTime' in data) || (data.arrivalTime is string && data.arrivalTime.size() <= 30)) &&
+        (!('boardingPoint' in data) || (data.boardingPoint is string && data.boardingPoint.size() <= 100)) &&
+        (!('droppingPoint' in data) || (data.droppingPoint is string && data.droppingPoint.size() <= 100)) &&
+        (!('primaryContact' in data) || (data.primaryContact is map)) &&
+        (!('seatCount' in data) || (data.seatCount is number && data.seatCount >= 1 && data.seatCount <= 10)) &&
+        (!('seatCharge' in data) || (data.seatCharge is number && data.seatCharge >= 0)) &&
+        (!('couponCode' in data) || (data.couponCode is string && data.couponCode.size() <= 50)) &&
+        (!('qrCodeToken' in data) || (data.qrCodeToken is string && data.qrCodeToken.size() <= 200)) &&
+        (!('paymentId' in data) || (data.paymentId is string && data.paymentId.size() <= 100)) &&
+        (!('transactionReference' in data) || (data.transactionReference is string && data.transactionReference.size() <= 100)) &&
+        (!('paymentMethod' in data) || (data.paymentMethod in ['bkash', 'nagad', 'rocket', 'card', 'demo'])) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100));
+    }
+
+    // 8. Payment Validator
+    function isValidPayment(data) {
+      return data.keys().hasAll(['bookingId', 'userId', 'provider', 'amount', 'currency', 'transactionReference', 'paymentStatus', 'verifiedAt', 'createdAt']) &&
+        data.keys().hasOnly(['bookingId', 'userId', 'provider', 'amount', 'currency', 'transactionReference', 'paymentStatus', 'verifiedAt', 'createdAt', 'bookingReference', 'accountNumber', 'id']) &&
+        data.bookingId is string && data.bookingId.size() >= 1 && data.bookingId.size() <= 100 &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 100 &&
+        data.provider is string && data.provider.size() >= 1 && data.provider.size() <= 50 &&
+        data.amount is number && data.amount > 0 &&
+        data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10 &&
+        data.transactionReference is string && data.transactionReference.size() >= 1 && data.transactionReference.size() <= 100 &&
+        data.paymentStatus in ['VERIFIED', 'FAILED', 'PENDING', 'REFUNDED'] &&
+        isValidTimestampOrString(data.verifiedAt) &&
+        isValidTimestampOrString(data.createdAt) &&
+        (!('bookingReference' in data) || (data.bookingReference is string && data.bookingReference.size() <= 50)) &&
+        (!('accountNumber' in data) || (data.accountNumber is string && data.accountNumber.size() <= 50)) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100));
+    }
+
+    // 9. Coupon Validator
+    function isValidCoupon(data) {
+      return data.keys().hasAll(['code', 'discountType', 'discountValue', 'minimumPurchase', 'usageLimit', 'expiryDate', 'active']) &&
+        data.keys().hasOnly(['code', 'discountType', 'discountValue', 'minimumPurchase', 'maximumDiscount', 'usageLimit', 'expiryDate', 'active', 'usedCount', 'description', 'id']) &&
+        data.code is string && data.code.size() >= 1 && data.code.size() <= 50 &&
+        data.discountType in ['percentage', 'fixed'] &&
+        data.discountValue is number && data.discountValue > 0 &&
+        data.minimumPurchase is number && data.minimumPurchase >= 0 &&
+        (!('maximumDiscount' in data) || (data.maximumDiscount is number && data.maximumDiscount >= 0)) &&
+        data.usageLimit is number && data.usageLimit > 0 &&
+        isValidTimestampOrString(data.expiryDate) &&
+        data.active is bool &&
+        (!('usedCount' in data) || (data.usedCount is number && data.usedCount >= 0)) &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 300)) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100));
+    }
+
+    // 10. Support Ticket Validator
+    function isValidSupportTicket(data) {
+      return data.keys().hasAll(['userId', 'subject', 'message', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'subject', 'message', 'status', 'createdAt', 'updatedAt', 'userName', 'userEmail', 'bookingReference', 'priority', 'adminReply', 'id']) &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 100 &&
+        data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 200 &&
+        data.message is string && data.message.size() >= 1 && data.message.size() <= 2000 &&
+        data.status in ['open', 'in_progress', 'resolved'] &&
+        isValidTimestampOrString(data.createdAt) &&
+        isValidTimestampOrString(data.updatedAt) &&
+        (!('userName' in data) || (data.userName is string && data.userName.size() <= 100)) &&
+        (!('userEmail' in data) || data.userEmail == '' || isValidEmail(data.userEmail)) &&
+        (!('bookingReference' in data) || (data.bookingReference is string && data.bookingReference.size() <= 50)) &&
+        (!('priority' in data) || (data.priority in ['low', 'medium', 'high'])) &&
+        (!('adminReply' in data) || (data.adminReply is string && data.adminReply.size() <= 2000)) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100));
+    }
+
+    // 11. Notification Validator
+    function isValidNotification(data) {
+      return data.keys().hasAll(['userId', 'title', 'message', 'type', 'read', 'createdAt']) &&
+        data.keys().hasOnly(['userId', 'title', 'message', 'type', 'read', 'createdAt', 'id']) &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 100 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.message is string && data.message.size() >= 1 && data.message.size() <= 1000 &&
+        data.type is string && data.type.size() >= 1 && data.type.size() <= 50 &&
+        data.read is bool &&
+        isValidTimestampOrString(data.createdAt) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 100));
+    }
+
+    // ===============================================================
+    // Collection Match Rules
+    // ===============================================================
+
+    // 1. users/{userId}
+    // Strict PII protection: Public cannot read; Owner can read/update their profile;
+    // Roles can never be self-assigned or escalated. Admin custom claim has full read/write.
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+
+      allow create: if isValidUser(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isOwner(userId) &&
+            request.resource.data.uid == userId &&
+            request.resource.data.role == 'passenger' &&
+            !('operatorId' in request.resource.data)
+          )
+        );
+
+      allow update: if isValidUser(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isOwner(userId) &&
+            request.resource.data.uid == resource.data.uid &&
+            request.resource.data.role == resource.data.role &&
+            request.resource.data.createdAt == resource.data.createdAt &&
+            (
+              (!('operatorId' in resource.data) && !('operatorId' in request.resource.data)) ||
+              (request.resource.data.operatorId == resource.data.operatorId)
+            )
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // 2. operators/{operatorId}
+    // Anyone (public) can read active operators; Admins have full access;
+    // Operators can update their own contact info if custom claim operatorId matches.
+    match /operators/{operatorId} {
+      allow read: if (resource.data.status == 'active') ||
+                     isAdmin() ||
+                     isAssignedOperator(operatorId);
+
+      allow create: if isAdmin() && isValidOperator(request.resource.data);
+
+      allow update: if isValidOperator(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isAssignedOperator(operatorId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['contactPhone', 'contactEmail', 'address', 'logoURL'])
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // 3. buses/{busId}
+    // Public read; Only admins and authorized operator can write.
+    match /buses/{busId} {
+      allow read: if true;
+
+      allow create: if isValidBus(request.resource.data) &&
+        (
+          isAdmin() ||
+          isAssignedOperator(request.resource.data.operatorId)
+        );
+
+      allow update: if isValidBus(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isAssignedOperator(resource.data.operatorId) &&
+            request.resource.data.operatorId == resource.data.operatorId &&
+            request.resource.data.createdAt == resource.data.createdAt
+          )
+        );
+
+      allow delete: if isAdmin() || isAssignedOperator(resource.data.operatorId);
+    }
+
+    // 4. routes/{routeId}
+    // Public read; Only admins can write.
+    match /routes/{routeId} {
+      allow read: if true;
+
+      allow create, update: if isAdmin() && isValidRoute(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 5. trips/{tripId}
+    // Public read for scheduled trips; Admin or assigned operator can create/update.
+    match /trips/{tripId} {
+      allow read: if (resource.data.status == 'scheduled') ||
+                     isAdmin() ||
+                     isAssignedOperator(resource.data.operatorId);
+
+      allow create: if isValidTrip(request.resource.data) &&
+        (
+          isAdmin() ||
+          isAssignedOperator(request.resource.data.operatorId)
+        );
+
+      allow update: if isValidTrip(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isAssignedOperator(resource.data.operatorId) &&
+            request.resource.data.operatorId == resource.data.operatorId &&
+            request.resource.data.createdAt == resource.data.createdAt
+          )
+        );
+
+      allow delete: if isAdmin() || isAssignedOperator(resource.data.operatorId);
+    }
+
+    // 6. seatHolds/{holdId}
+    // Authenticated user can create hold for themselves where userId == auth.uid and expiresAt > current time;
+    // Owner and admin can read/release their holds.
+    match /seatHolds/{holdId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+
+      allow create: if isValidSeatHold(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isAuthenticated() &&
+            request.resource.data.userId == request.auth.uid &&
+            request.resource.data.status == 'active' &&
+            request.resource.data.expiresAt > request.time.toMillis() &&
+            request.resource.data.expiresAt <= request.time.toMillis() + (30 * 60 * 1000)
+          )
+        );
+
+      allow update: if isValidSeatHold(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isAuthenticated() &&
+            resource.data.userId == request.auth.uid &&
+            request.resource.data.userId == resource.data.userId &&
+            request.resource.data.tripId == resource.data.tripId &&
+            request.resource.data.status == 'released' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          )
+        );
+
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+    }
+
+    // 7. bookings/{bookingId}
+    // User can read their own bookings; Operators can read bookings for their trips; Admin can read all;
+    // Passengers cannot modify paymentStatus or bookingStatus directly (only UNPAID/PENDING on create).
+    match /bookings/{bookingId} {
+      allow read: if (isAuthenticated() && resource.data.userId == request.auth.uid) ||
+                     (isAuthenticated() && ('operatorId' in resource.data) && isAssignedOperator(resource.data.operatorId)) ||
+                     isAdmin();
+
+      allow create: if isValidBooking(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isAuthenticated() &&
+            request.resource.data.userId == request.auth.uid &&
+            request.resource.data.paymentStatus == 'UNPAID' &&
+            request.resource.data.bookingStatus == 'PENDING'
+          )
+        );
+
+      allow update: if isValidBooking(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isAuthenticated() &&
+            ('operatorId' in resource.data) &&
+            isAssignedOperator(resource.data.operatorId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['passengerDetails', 'updatedAt'])
+          ) ||
+          (
+            isAuthenticated() &&
+            resource.data.userId == request.auth.uid &&
+            request.resource.data.userId == resource.data.userId &&
+            request.resource.data.bookingReference == resource.data.bookingReference &&
+            request.resource.data.tripId == resource.data.tripId &&
+            request.resource.data.createdAt == resource.data.createdAt &&
+            request.resource.data.paymentStatus == resource.data.paymentStatus &&
+            request.resource.data.bookingStatus == resource.data.bookingStatus &&
+            request.resource.data.totalAmount == resource.data.totalAmount &&
+            request.resource.data.subtotal == resource.data.subtotal &&
+            request.resource.data.discount == resource.data.discount &&
+            request.resource.data.selectedSeats == resource.data.selectedSeats
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // 8. payments/{paymentId}
+    // Only readable by the payer and admin; Never directly writable by passengers (backend or admin only).
+    match /payments/{paymentId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+
+      allow create, update: if isAdmin() && isValidPayment(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 9. coupons/{couponId}
+    // Public read for active coupons; Admin write only.
+    match /coupons/{couponId} {
+      allow read: if (resource.data.active == true) || isAdmin();
+
+      allow create, update: if isAdmin() && isValidCoupon(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 10. supportTickets/{ticketId}
+    // Owner can create and read their tickets; Admin can read, reply, and update status.
+    match /supportTickets/{ticketId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+
+      allow create: if isValidSupportTicket(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isAuthenticated() &&
+            request.resource.data.userId == request.auth.uid &&
+            request.resource.data.status == 'open' &&
+            !('adminReply' in request.resource.data)
+          )
+        );
+
+      allow update: if isValidSupportTicket(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isAuthenticated() &&
+            resource.data.userId == request.auth.uid &&
+            request.resource.data.userId == resource.data.userId &&
+            request.resource.data.createdAt == resource.data.createdAt &&
+            (!('adminReply' in resource.data) && !('adminReply' in request.resource.data) ||
+             request.resource.data.adminReply == resource.data.adminReply)
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    // 11. notifications/{notificationId}
+    // Owner can read/update (e.g. mark read); Admin can write.
+    match /notifications/{notificationId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+
+      allow create: if isAdmin() && isValidNotification(request.resource.data);
+
+      allow update: if isValidNotification(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            isAuthenticated() &&
+            resource.data.userId == request.auth.uid &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+          )
+        );
+
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+    }
+
+    // ===============================================================
+    // Default Deny Rule
+    // ===============================================================
+    // Deny all reads and writes to any collection or document path not explicitly allowed above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

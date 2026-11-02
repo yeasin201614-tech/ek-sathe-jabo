@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /operator
+Disallow: /booking/payment
+
+Sitemap: https://eksathejabo.com/sitemap.xml
