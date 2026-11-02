@@ -27,7 +27,7 @@ BEGIN
   INSERT INTO public.profiles (id, full_name, email, phone, role)
   VALUES (
     NEW.id,
-    COALESPE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
+    COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'phone', ''),
     'passenger' -- Strict security: always default to passenger
